@@ -22,3 +22,21 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Build output
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# AI agent instructions stay local
+AGENTS.md
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+GEMINI.md
+.cursor/
+.cursorrules
+.github/copilot-instructions.md
