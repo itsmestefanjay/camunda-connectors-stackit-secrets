@@ -7,10 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 /**
- * Optional check against a real STACKIT Secrets Manager instance, configured exactly like the
- * runtime: through the {@code STACKIT_SECRETS_*} variables. Skipped unless they are set.
- *
- * <p>Expects the secret at {@code STACKIT_SECRETS_PATH} to hold a key {@code LIVE_CHECK}.
+ * Real STACKIT instance; runs only with {@code STACKIT_SECRETS_*} set and a {@code LIVE_CHECK} key.
  */
 @EnabledIfEnvironmentVariable(named = "STACKIT_SECRETS_INSTANCE_ID", matches = ".+")
 class StackitSecretProviderLiveIT {

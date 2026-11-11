@@ -17,10 +17,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.vault.VaultContainer;
 
-/**
- * Runs the provider against a real Vault set up the way STACKIT Secrets Manager presents itself:
- * a KV v2 engine mounted at the instance ID, and a read-only userpass user.
- */
 @Testcontainers
 class StackitSecretProviderIT {
 
@@ -108,7 +104,7 @@ class StackitSecretProviderIT {
     var initial = provider.getSecret("DB_PASSWORD", CONTEXT);
 
     // when
-    Thread.sleep(Duration.ofSeconds(5)); // the 4s token from the first login has expired
+    Thread.sleep(Duration.ofSeconds(5)); // 4s token expired
     var afterExpiry = provider.getSecret("DB_PASSWORD", CONTEXT);
 
     // then

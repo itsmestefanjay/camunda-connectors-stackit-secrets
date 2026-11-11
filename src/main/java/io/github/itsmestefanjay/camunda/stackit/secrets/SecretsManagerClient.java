@@ -10,26 +10,24 @@ import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
+import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Reads one KV v2 secret from STACKIT Secrets Manager, using its Vault-compatible HTTP API.
- *
- * <p>Logs in with userpass and keeps the client token until shortly before its lease ends, then
- * logs in again. A token revoked early is detected by a 403 and replaced once per read.
- */
+/** Reads one KV v2 secret via the Vault-compatible API; thread-safe through synchronized {@link #readSecrets}. */
 final class SecretsManagerClient implements AutoCloseable {
 
-  /** Renew this long before the token lease ends, so a token never expires mid-request. */
   static final Duration RENEWAL_MARGIN = Duration.ofSeconds(30);
+
+  private static final int OK = 200;
+  private static final int FORBIDDEN = 403;
+  private static final int NOT_FOUND = 404;
 
   private final StackitSecretsConfig config;
   private final HttpClient http;
   private final ObjectMapper json;
   private final Clock clock;
 
-  private String token;
+  private String token; // null = log in on next read
   private Instant tokenRenewAt = Instant.MIN;
 
   SecretsManagerClient(StackitSecretsConfig config, HttpClient http, ObjectMapper json, Clock clock) {
@@ -43,26 +41,21 @@ final class SecretsManagerClient implements AutoCloseable {
     HttpClient http =
         HttpClient.newBuilder()
             .connectTimeout(config.requestTimeout())
-            .followRedirects(HttpClient.Redirect.NEVER)
+            .followRedirects(HttpClient.Redirect.NEVER) // token must not reach another host
             .build();
     return new SecretsManagerClient(config, http, new ObjectMapper(), Clock.systemUTC());
   }
 
-  /**
-   * Reads all key/value pairs stored at the configured secret path.
-   *
-   * @return the secret's keys and values; values that are not JSON strings are returned as JSON
-   * @throws StackitSecretsException if the secret cannot be read
-   */
+  /** All keys at the secret path; non-string values as JSON text. */
   synchronized Map<String, String> readSecrets() {
-    HttpResponse<String> response = send(readRequest(currentToken()));
-    if (response.statusCode() == 403) {
-      invalidateToken();
-      response = send(readRequest(currentToken()));
+    HttpResponse<String> response = send(readRequest());
+    if (response.statusCode() == FORBIDDEN) { // token revoked early
+      token = null;
+      response = send(readRequest());
     }
     return switch (response.statusCode()) {
-      case 200 -> parseSecret(response.body());
-      case 404 ->
+      case OK -> parseSecret(response.body());
+      case NOT_FOUND ->
           throw new StackitSecretsException(
               "No secret at '%s' in instance %s".formatted(config.secretPath(), config.instanceId()));
       default -> throw failure("Reading secret '" + config.secretPath() + "'", response);
@@ -81,48 +74,46 @@ final class SecretsManagerClient implements AutoCloseable {
     return token;
   }
 
-  private void invalidateToken() {
-    token = null;
-  }
-
   private void login() {
     String body = json.createObjectNode().put("password", config.password()).toString();
     HttpRequest request =
-        HttpRequest.newBuilder(uri("/v1/auth/userpass/login/" + config.username()))
-            .timeout(config.requestTimeout())
+        request("/v1/auth/userpass/login/" + config.username())
             .header("Content-Type", "application/json")
             .PUT(HttpRequest.BodyPublishers.ofString(body))
             .build();
     HttpResponse<String> response = send(request);
-    if (response.statusCode() != 200) {
+    if (response.statusCode() != OK) {
       throw failure("Login as '" + config.username() + "'", response);
     }
 
     JsonNode auth = readTree(response.body()).path("auth");
-    String clientToken = auth.path("client_token").asText(null);
-    if (clientToken == null || clientToken.isBlank()) {
+    String clientToken = auth.path("client_token").asText("");
+    if (clientToken.isBlank()) {
       throw new StackitSecretsException("Login response did not contain a client token");
     }
-    long leaseSeconds = auth.path("lease_duration").asLong(0);
     token = clientToken;
-    tokenRenewAt = renewalTime(leaseSeconds);
+    tokenRenewAt = renewalTime(auth.path("lease_duration").asLong(0));
   }
 
   private Instant renewalTime(long leaseSeconds) {
     if (leaseSeconds <= 0) {
-      return Instant.MAX; // a token without a lease does not expire
+      return Instant.MAX; // no lease = no expiry
     }
     Duration lease = Duration.ofSeconds(leaseSeconds);
-    Duration margin = lease.compareTo(RENEWAL_MARGIN.multipliedBy(2)) > 0 ? RENEWAL_MARGIN : lease.dividedBy(2);
+    Duration margin =
+        lease.compareTo(RENEWAL_MARGIN.multipliedBy(2)) > 0 ? RENEWAL_MARGIN : lease.dividedBy(2);
     return clock.instant().plus(lease).minus(margin);
   }
 
-  private HttpRequest readRequest(String clientToken) {
-    return HttpRequest.newBuilder(uri("/v1/" + config.instanceId() + "/data/" + config.secretPath()))
-        .timeout(config.requestTimeout())
-        .header("X-Vault-Token", clientToken)
+  private HttpRequest readRequest() {
+    return request("/v1/" + config.instanceId() + "/data/" + config.secretPath())
+        .header("X-Vault-Token", currentToken())
         .GET()
         .build();
+  }
+
+  private HttpRequest.Builder request(String path) {
+    return HttpRequest.newBuilder(URI.create(config.baseUrl() + path)).timeout(config.requestTimeout());
   }
 
   private Map<String, String> parseSecret(String body) {
@@ -131,9 +122,8 @@ final class SecretsManagerClient implements AutoCloseable {
       throw new StackitSecretsException(
           "Secret '" + config.secretPath() + "' is not a KV v2 secret with key/value data");
     }
-    Map<String, String> secrets = new LinkedHashMap<>();
-    data.properties()
-        .forEach(entry -> secrets.put(entry.getKey(), asSecretValue(entry.getValue())));
+    Map<String, String> secrets = new HashMap<>();
+    data.properties().forEach(e -> secrets.put(e.getKey(), asSecretValue(e.getValue())));
     return Map.copyOf(secrets);
   }
 
@@ -160,7 +150,6 @@ final class SecretsManagerClient implements AutoCloseable {
     }
   }
 
-  /** Builds an error from the status and Vault's {@code errors} array; never echoes a secret. */
   private StackitSecretsException failure(String action, HttpResponse<String> response) {
     String errors = "";
     try {
@@ -169,13 +158,8 @@ final class SecretsManagerClient implements AutoCloseable {
         errors = ": " + node;
       }
     } catch (IOException | RuntimeException ignored) {
-      // the status code alone still says what happened
+      // status code is enough
     }
-    return new StackitSecretsException(
-        "%s failed with HTTP %d%s".formatted(action, response.statusCode(), errors));
-  }
-
-  private URI uri(String path) {
-    return URI.create(config.baseUrl() + path);
+    return new StackitSecretsException("%s failed with HTTP %d%s".formatted(action, response.statusCode(), errors));
   }
 }

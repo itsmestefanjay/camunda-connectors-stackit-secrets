@@ -10,19 +10,15 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * Connection settings for one STACKIT Secrets Manager instance, read from environment variables.
+ * Settings for one Secrets Manager instance, read from {@code STACKIT_SECRETS_*} variables.
  *
- * <p>The provider is enabled only when {@value #INSTANCE_ID} is set. Once it is, the credentials
- * and the secret path are required, so a half-configured runtime fails at startup instead of on
- * the first job.
- *
- * @param baseUrl the Secrets Manager API endpoint
- * @param instanceId the Secrets Manager instance ID, which is also the KV v2 mount path
- * @param username the Secrets Manager user (read-only is enough)
- * @param password the password of that user
- * @param secretPath the KV v2 path whose keys are the secret names
- * @param cacheTtl how long fetched secrets are served before they are read again
- * @param requestTimeout timeout for a single HTTP request to Secrets Manager
+ * @param baseUrl API endpoint
+ * @param instanceId instance ID, also the KV v2 mount
+ * @param username userpass user, read-only is enough
+ * @param password password of that user
+ * @param secretPath KV v2 path whose keys are the secret names
+ * @param cacheTtl how long values are served before a reload
+ * @param requestTimeout timeout per HTTP request
  */
 public record StackitSecretsConfig(
     URI baseUrl,
@@ -45,6 +41,7 @@ public record StackitSecretsConfig(
   static final Duration DEFAULT_CACHE_TTL = Duration.ofMinutes(5);
   static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(10);
 
+  /** Rejects nulls, a negative TTL and a non-positive timeout; strips slashes off the path. */
   public StackitSecretsConfig {
     Objects.requireNonNull(baseUrl, "baseUrl");
     Objects.requireNonNull(instanceId, "instanceId");
@@ -56,24 +53,18 @@ public record StackitSecretsConfig(
     if (cacheTtl.isNegative()) {
       throw new IllegalArgumentException(CACHE_TTL + " must not be negative");
     }
-    if (requestTimeout.isNegative() || requestTimeout.isZero()) {
+    if (!requestTimeout.isPositive()) {
       throw new IllegalArgumentException(REQUEST_TIMEOUT + " must be positive");
     }
-    secretPath = trimSlashes(secretPath);
+    secretPath = secretPath.strip().replaceAll("^/+|/+$", "");
   }
 
-  /** Reads the configuration from the process environment. */
+  /** Empty if {@code STACKIT_SECRETS_INSTANCE_ID} is unset. */
   public static Optional<StackitSecretsConfig> fromEnvironment() {
     return from(System::getenv);
   }
 
-  /**
-   * Reads the configuration from a variable lookup.
-   *
-   * @param env returns the value of a variable, or {@code null} if it is not set
-   * @return the configuration, or empty if {@value #INSTANCE_ID} is not set
-   * @throws IllegalStateException if the provider is enabled but required variables are missing
-   */
+  /** Throws {@link IllegalStateException} naming every missing variable once enabled. */
   static Optional<StackitSecretsConfig> from(Function<String, String> env) {
     String instanceId = value(env, INSTANCE_ID);
     if (instanceId == null) {
@@ -92,7 +83,7 @@ public record StackitSecretsConfig(
     String baseUrl = value(env, BASE_URL);
     return Optional.of(
         new StackitSecretsConfig(
-            baseUrl == null ? DEFAULT_BASE_URL : URI.create(trimTrailingSlash(baseUrl)),
+            baseUrl == null ? DEFAULT_BASE_URL : URI.create(baseUrl.replaceAll("/+$", "")),
             instanceId,
             username,
             password,
@@ -101,16 +92,17 @@ public record StackitSecretsConfig(
             duration(env, REQUEST_TIMEOUT, DEFAULT_REQUEST_TIMEOUT)));
   }
 
-  /** Never prints the password. */
+  /** Password redacted. */
   @Override
   public String toString() {
-    return "StackitSecretsConfig[baseUrl=%s, instanceId=%s, username=%s, password=***, secretPath=%s, cacheTtl=%s, requestTimeout=%s]"
+    return ("StackitSecretsConfig[baseUrl=%s, instanceId=%s, username=%s, password=***, "
+            + "secretPath=%s, cacheTtl=%s, requestTimeout=%s]")
         .formatted(baseUrl, instanceId, username, secretPath, cacheTtl, requestTimeout);
   }
 
   private static String value(Function<String, String> env, String name) {
     String value = env.apply(name);
-    return value == null || value.isBlank() ? null : value.trim();
+    return value == null || value.isBlank() ? null : value.strip();
   }
 
   private static String required(Function<String, String> env, String name, List<String> missing) {
@@ -129,24 +121,7 @@ public record StackitSecretsConfig(
     try {
       return Duration.parse(value);
     } catch (DateTimeParseException e) {
-      throw new IllegalStateException(
-          name + " must be an ISO-8601 duration such as PT5M, got '" + value + "'", e);
+      throw new IllegalStateException(name + " must be an ISO-8601 duration such as PT5M, got '" + value + "'", e);
     }
-  }
-
-  private static String trimSlashes(String path) {
-    String trimmed = path.strip();
-    while (trimmed.startsWith("/")) {
-      trimmed = trimmed.substring(1);
-    }
-    return trimTrailingSlash(trimmed);
-  }
-
-  private static String trimTrailingSlash(String value) {
-    String trimmed = value;
-    while (trimmed.endsWith("/")) {
-      trimmed = trimmed.substring(0, trimmed.length() - 1);
-    }
-    return trimmed;
   }
 }

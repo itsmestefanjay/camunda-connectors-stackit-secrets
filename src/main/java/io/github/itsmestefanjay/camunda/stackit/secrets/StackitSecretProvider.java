@@ -7,24 +7,15 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Resolves {@code {{secrets.NAME}}} in the Camunda Connectors runtime from STACKIT Secrets Manager.
- *
- * <p>Discovered by the runtime through {@link java.util.ServiceLoader}. Each secret name is a key
- * of the KV v2 secret at {@code STACKIT_SECRETS_PATH}. A name Secrets Manager does not hold
- * returns {@code null}, so the runtime moves on to its other providers.
- *
- * <p>Without {@code STACKIT_SECRETS_INSTANCE_ID} the provider stays disabled and resolves nothing,
- * which keeps the jar safe to ship in images that do not use it.
- */
+/** Resolves {@code {{secrets.NAME}}} from STACKIT Secrets Manager; disabled without {@code STACKIT_SECRETS_INSTANCE_ID}. */
 public final class StackitSecretProvider implements SecretProvider, AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(StackitSecretProvider.class);
 
-  private final SecretCache cache;
-  private final SecretsManagerClient client;
+  private final SecretsManagerClient client; // null when disabled
+  private final SecretCache cache; // null when disabled
 
-  /** Used by {@link java.util.ServiceLoader}; reads its configuration from the environment. */
+  /** ServiceLoader entry point; configured from the environment. */
   public StackitSecretProvider() {
     this(StackitSecretsConfig.fromEnvironment());
   }
@@ -33,9 +24,9 @@ public final class StackitSecretProvider implements SecretProvider, AutoCloseabl
     this(config, config.map(SecretsManagerClient::create).orElse(null), Clock.systemUTC());
   }
 
-  StackitSecretProvider(Optional<StackitSecretsConfig> config, SecretsManagerClient client, Clock clock) {
+  StackitSecretProvider(Optional<StackitSecretsConfig> config, SecretsManagerClient client, Clock cacheClock) {
     if (config.isEmpty()) {
-      LOG.info("STACKIT secret provider disabled: STACKIT_SECRETS_INSTANCE_ID is not set");
+      LOG.info("STACKIT secret provider disabled: {} is not set", StackitSecretsConfig.INSTANCE_ID);
       this.client = null;
       this.cache = null;
       return;
@@ -47,15 +38,13 @@ public final class StackitSecretProvider implements SecretProvider, AutoCloseabl
         settings.secretPath(),
         settings.cacheTtl());
     this.client = client;
-    this.cache = new SecretCache(client::readSecrets, settings.cacheTtl(), clock);
+    this.cache = new SecretCache(client::readSecrets, settings.cacheTtl(), cacheClock);
   }
 
+  /** {@code null} for unknown names so the runtime asks its next provider. */
   @Override
   public String getSecret(String name, SecretContext context) {
-    if (cache == null) {
-      return null;
-    }
-    return cache.get(name).orElse(null);
+    return cache == null ? null : cache.get(name).orElse(null);
   }
 
   @Override
