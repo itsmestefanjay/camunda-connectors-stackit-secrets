@@ -1,8 +1,8 @@
 # camunda-connectors-stackit-secrets
 
-Camunda 8 connector secret provider for STACKIT Secrets Manager (Vault-compatible). Resolves {{secrets.*}} in the Camunda Connectors runtime directly from STACKIT, without Kubernetes Secrets or External Secrets Operator. Java SPI with token renewal and caching for Camunda Self-Managed and hybrid runtimes on the German sovereign cloud.
-
-> Use at your own risk. Independent project, not affiliated with or endorsed by Camunda or STACKIT.
+Camunda 8 connector secret provider for STACKIT Secrets Manager (Vault-compatible). Resolves {{secrets.*}} in the Camunda 
+Connectors runtime directly from STACKIT, without Kubernetes Secrets or External Secrets Operator. Java SPI with token 
+renewal and caching for Camunda Self-Managed and hybrid runtimes on the German sovereign cloud.
 
 Camunda 8.10 cluster secret stores support file, AWS and GCP only; this provider covers `{{secrets.*}}` in connectors.
 
@@ -21,7 +21,7 @@ mvn verify                # jar with tests
 
 Output: `target/camunda-connectors-stackit-secrets-<version>.jar`.
 
-No runtime dependencies. connector-core, Jackson and slf4j are provided by the runtime.
+No runtime dependencies. connector-core, Jackson and SLF4j are provided by the runtime.
 
 ## Configure
 
@@ -135,7 +135,3 @@ STACKIT_SECRETS_INSTANCE_ID=... STACKIT_SECRETS_USERNAME=... STACKIT_SECRETS_PAS
 - One secret path per runtime.
 - Userpass authentication only. No AppRole.
 - Tenant and process context are not used for scoping.
-
-## License
-
-Apache License 2.0, see [LICENSE](LICENSE).
