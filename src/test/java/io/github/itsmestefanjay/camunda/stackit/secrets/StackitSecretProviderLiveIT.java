@@ -16,12 +16,18 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 class StackitSecretProviderLiveIT {
 
   @Test
-  void resolvesASecretFromStackit() {
+  void test_provider_resolves_secret_from_stackit_as_expected() {
+    // given
     try (StackitSecretProvider provider = new StackitSecretProvider()) {
       SecretContext context = new SecretContext("<default>", "live-check");
 
-      assertThat(provider.getSecret("LIVE_CHECK", context)).isNotBlank();
-      assertThat(provider.getSecret("NOT_THERE", context)).isNull();
+      // when
+      var known = provider.getSecret("LIVE_CHECK", context);
+      var unknown = provider.getSecret("NOT_THERE", context);
+
+      // then
+      assertThat(known).as("live secret").isNotBlank();
+      assertThat(unknown).as("unknown secret").isNull();
     }
   }
 }

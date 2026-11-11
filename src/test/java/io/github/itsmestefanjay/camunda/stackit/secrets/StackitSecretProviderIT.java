@@ -57,58 +57,88 @@ class StackitSecretProviderIT {
   }
 
   @Test
-  void resolvesASecretByName() {
+  void test_provider_resolves_secret_by_name_as_expected() {
+    // given
     provider = provider(config(USER, PASSWORD, Duration.ofMinutes(5)));
 
-    assertThat(provider.getSecret("API_TOKEN", CONTEXT)).isEqualTo("first");
-    assertThat(provider.getSecret("DB_PASSWORD", CONTEXT)).isEqualTo("db-pass");
+    // when
+    var apiToken = provider.getSecret("API_TOKEN", CONTEXT);
+    var dbPassword = provider.getSecret("DB_PASSWORD", CONTEXT);
+
+    // then
+    assertThat(apiToken).as("api token").isEqualTo("first");
+    assertThat(dbPassword).as("db password").isEqualTo("db-pass");
   }
 
   @Test
-  void returnsNullForANameItDoesNotHold() {
+  void test_provider_returns_null_for_unknown_name_as_expected() {
+    // given
     provider = provider(config(USER, PASSWORD, Duration.ofMinutes(5)));
 
-    assertThat(provider.getSecret("NOT_THERE", CONTEXT)).isNull();
+    // when
+    var value = provider.getSecret("NOT_THERE", CONTEXT);
+
+    // then
+    assertThat(value).as("unknown secret").isNull();
   }
 
   @Test
-  void picksUpARotatedValueAfterTheCacheTtl() throws Exception {
+  void test_provider_picks_up_rotated_value_after_ttl_as_expected() throws Exception {
+    // given
     Duration ttl = Duration.ofMinutes(5);
     provider = provider(config(USER, PASSWORD, ttl));
-    assertThat(provider.getSecret("ROTATED", CONTEXT)).isEqualTo("old");
+    var initial = provider.getSecret("ROTATED", CONTEXT);
 
+    // when
     vault("kv", "patch", "-mount=" + INSTANCE_ID, PATH, "ROTATED=new");
-    assertThat(provider.getSecret("ROTATED", CONTEXT)).isEqualTo("old");
-
+    var cached = provider.getSecret("ROTATED", CONTEXT);
     cacheClock.advance(ttl);
-    assertThat(provider.getSecret("ROTATED", CONTEXT)).isEqualTo("new");
+    var refreshed = provider.getSecret("ROTATED", CONTEXT);
+
+    // then
+    assertThat(initial).as("initial value").isEqualTo("old");
+    assertThat(cached).as("cached value").isEqualTo("old");
+    assertThat(refreshed).as("refreshed value").isEqualTo("new");
   }
 
   @Test
-  void logsInAgainBeforeTheTokenExpires() throws Exception {
+  void test_provider_logs_in_again_before_token_expiry_as_expected() throws Exception {
+    // given
     provider = provider(config(USER, PASSWORD, Duration.ZERO));
-    assertThat(provider.getSecret("DB_PASSWORD", CONTEXT)).isEqualTo("db-pass");
+    var initial = provider.getSecret("DB_PASSWORD", CONTEXT);
 
+    // when
     Thread.sleep(Duration.ofSeconds(5)); // the 4s token from the first login has expired
+    var afterExpiry = provider.getSecret("DB_PASSWORD", CONTEXT);
 
-    assertThat(provider.getSecret("DB_PASSWORD", CONTEXT)).isEqualTo("db-pass");
+    // then
+    assertThat(initial).as("initial value").isEqualTo("db-pass");
+    assertThat(afterExpiry).as("value after expiry").isEqualTo("db-pass");
   }
 
   @Test
-  void reportsAFailedLoginWithoutTheSecret() {
+  void test_provider_reports_failed_login_without_password_as_expected() {
+    // given
     provider = provider(config(USER, "wrong-password", Duration.ofMinutes(5)));
 
+    // when / then
     assertThatThrownBy(() -> provider.getSecret("API_TOKEN", CONTEXT))
+        .as("login failure")
         .isInstanceOf(StackitSecretsException.class)
         .hasMessageContaining("Login as 'reader' failed with HTTP 400")
         .hasMessageNotContaining("wrong-password");
   }
 
   @Test
-  void resolvesNothingWhenDisabled() {
+  void test_provider_resolves_nothing_when_disabled_as_expected() {
+    // given
     provider = new StackitSecretProvider(Optional.empty());
 
-    assertThat(provider.getSecret("API_TOKEN", CONTEXT)).isNull();
+    // when
+    var value = provider.getSecret("API_TOKEN", CONTEXT);
+
+    // then
+    assertThat(value).as("disabled secret").isNull();
   }
 
   private StackitSecretProvider provider(StackitSecretsConfig config) {

@@ -22,15 +22,15 @@ The first non-null value wins. SPI discovery is on by default; toggle it with `c
 
 All settings are environment variables of the connector runtime.
 
-| Variable | Required | Default | Meaning |
-|---|---|---|---|
-| `STACKIT_SECRETS_INSTANCE_ID` | no | unset | Secrets Manager instance ID (also the KV v2 mount). Unset disables the provider; it then returns `null` for every name. |
-| `STACKIT_SECRETS_USERNAME` | when enabled | | Userpass user. |
-| `STACKIT_SECRETS_PASSWORD` | when enabled | | Password of that user. |
-| `STACKIT_SECRETS_PATH` | when enabled | | KV v2 path of the secret whose keys are the secret names. |
-| `STACKIT_SECRETS_URL` | no | `https://prod.sm.eu01.stackit.cloud` | API endpoint. |
-| `STACKIT_SECRETS_CACHE_TTL` | no | `PT5M` | ISO-8601 duration; must not be negative. |
-| `STACKIT_SECRETS_REQUEST_TIMEOUT` | no | `PT10S` | ISO-8601 duration per HTTP request; must be positive. |
+| Variable                          | Required     | Default                              | Meaning                                                                                                                 |
+|-----------------------------------|--------------|--------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `STACKIT_SECRETS_INSTANCE_ID`     | no           | unset                                | Secrets Manager instance ID (also the KV v2 mount). Unset disables the provider; it then returns `null` for every name. |
+| `STACKIT_SECRETS_USERNAME`        | when enabled |                                      | Userpass user.                                                                                                          |
+| `STACKIT_SECRETS_PASSWORD`        | when enabled |                                      | Password of that user.                                                                                                  |
+| `STACKIT_SECRETS_PATH`            | when enabled |                                      | KV v2 path of the secret whose keys are the secret names.                                                               |
+| `STACKIT_SECRETS_URL`             | no           | `https://prod.sm.eu01.stackit.cloud` | API endpoint.                                                                                                           |
+| `STACKIT_SECRETS_CACHE_TTL`       | no           | `PT5M`                               | ISO-8601 duration; must not be negative.                                                                                |
+| `STACKIT_SECRETS_REQUEST_TIMEOUT` | no           | `PT10S`                              | ISO-8601 duration per HTTP request; must be positive.                                                                   |
 
 If the instance ID is set but a required variable is missing, startup fails and the message names every missing variable.
 
@@ -136,7 +136,3 @@ mvn verify
 - One secret path per runtime.
 - Userpass authentication only; no AppRole yet.
 - Tenant and process context are not used for scoping.
-
-## License
-
-Apache License 2.0, see [LICENSE](LICENSE).
